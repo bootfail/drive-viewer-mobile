@@ -472,6 +472,23 @@ function renderGrid() {
   syncVisibleNodes();
 }
 
+// Progressive update: extend the grid with new items without resetting the
+// scroll position or destroying nodes that are already on screen.
+function refreshGrid() {
+  const q = filterInput.value.toLowerCase();
+  const s = sortSelect.value;
+  filtered = allMedia.filter(m => !q || m.name.toLowerCase().includes(q));
+  filtered.sort((a, b) => {
+    if (s === 'name-asc') return a.name.localeCompare(b.name);
+    if (s === 'name-desc') return b.name.localeCompare(a.name);
+    if (s === 'date-old') return a.date - b.date;
+    return b.date - a.date;
+  });
+  counter.textContent = filtered.length;
+  if (!calcGridLayout()) return;
+  syncVisibleNodes();
+}
+
 const VID_BADGE_SVG = '<svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>';
 
 function syncVisibleNodes() {
@@ -488,7 +505,8 @@ function syncVisibleNodes() {
   const endIdx = Math.min(filtered.length - 1, (endRow + 1) * vCols - 1);
 
   for (const [idx, el] of liveNodes) {
-    if (idx < startIdx || idx > endIdx) {
+    // Also evict if the item at this index changed (e.g. after re-sort)
+    if (idx < startIdx || idx > endIdx || filtered[idx]?.thumbUrl !== el.dataset.url) {
       el.remove();
       liveNodes.delete(idx);
     }
@@ -502,6 +520,7 @@ function syncVisibleNodes() {
     div.className = 'thumb';
     if (i === currentIdx) div.classList.add('active');
     div.dataset.idx = i;
+    div.dataset.url = m.thumbUrl || m.url;
     positionThumb(div, i);
 
     const img = document.createElement('img');
@@ -1060,7 +1079,7 @@ async function initDrive(clientId, folderName) {
       renderTimer = 0;
       allMedia = media;
       if (!gridShown) { gridShown = true; showGrid(); }
-      else { applyFilterSort(); }
+      else { refreshGrid(); }
     }, 350);
   }
 
@@ -1126,7 +1145,7 @@ async function initDrive(clientId, folderName) {
   // Final flush
   if (renderTimer) { clearTimeout(renderTimer); renderTimer = 0; }
   allMedia = media;
-  if (!gridShown) showGrid(); else applyFilterSort();
+  if (!gridShown) showGrid(); else refreshGrid();
   counter.textContent = media.length;
 }
 </script>
