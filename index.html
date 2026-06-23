@@ -1,0 +1,1134 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes, viewport-fit=cover">
+<meta name="theme-color" content="#0a0a0a">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>Drive Viewer Mobile</title>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+
+:root {
+  --bg: #0a0a0a; --surface: #141414; --surface2: #1e1e1e; --surface3: #282828;
+  --text: #e8e8e8; --text2: #888; --accent: #6e8efb; --accent2: #a777e3;
+  --radius: 6px; --gap: 3px; --thumb: 110px;
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bot: env(safe-area-inset-bottom, 0px);
+}
+
+html, body {
+  height: 100%; height: 100dvh;
+  background: var(--bg); color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  overflow: hidden; touch-action: manipulation;
+  -webkit-text-size-adjust: 100%;
+}
+
+/* Prevent iOS auto-zoom on input focus (font must be ≥16px) */
+input, select, textarea { font-size: 16px; }
+
+button, input, select { font-family: inherit; }
+
+/* ---- Top bar ---- */
+#topbar {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+  height: calc(44px + var(--safe-top)); padding-top: var(--safe-top);
+  display: none; align-items: center; gap: 6px; padding-left: 8px; padding-right: 8px;
+  background: rgba(10,10,10,.92); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+  border-bottom: 1px solid rgba(255,255,255,.06);
+}
+#topbar.show { display: flex; }
+#topbar .logo { font-weight: 700; font-size: 13px; background: linear-gradient(135deg, var(--accent), var(--accent2)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; flex-shrink: 0; }
+#filterInput {
+  flex: 1; min-width: 0;
+  background: var(--surface2); border: 1px solid rgba(255,255,255,.08); border-radius: 6px;
+  color: var(--text); padding: 7px 10px; font-size: 16px; outline: none;
+}
+#filterInput:focus { border-color: var(--accent); }
+#filterInput::placeholder { color: var(--text2); }
+#counter { font-size: 11px; color: var(--text2); font-variant-numeric: tabular-nums; flex-shrink: 0; min-width: 50px; text-align: right; }
+.icon-btn {
+  width: 36px; height: 36px; flex-shrink: 0;
+  background: var(--surface2); border: 1px solid rgba(255,255,255,.08); border-radius: 6px;
+  color: var(--text); font-size: 16px; cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.icon-btn:active { background: var(--surface3); }
+
+/* ---- Sheet menu ---- */
+#sheet {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 150;
+  background: var(--surface); border-top: 1px solid rgba(255,255,255,.08);
+  border-radius: 16px 16px 0 0;
+  padding: 14px 16px calc(16px + var(--safe-bot));
+  transform: translateY(100%); transition: transform .22s ease;
+}
+#sheet.open { transform: translateY(0); }
+#sheetBackdrop {
+  position: fixed; inset: 0; z-index: 149; background: rgba(0,0,0,.5);
+  display: none;
+}
+#sheetBackdrop.open { display: block; }
+#sheet h3 { font-size: 13px; color: var(--text2); margin-bottom: 8px; font-weight: 500; text-transform: uppercase; letter-spacing: .8px; }
+#sheet .row { display: flex; gap: 8px; margin-bottom: 12px; }
+#sheet .row > * { flex: 1; }
+#sheet button, #sheet label, #sheet select {
+  padding: 11px 12px; background: var(--surface2); border: 1px solid rgba(255,255,255,.08);
+  border-radius: 8px; color: var(--text); font-size: 13px; cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  white-space: nowrap;
+}
+#sheet input[type="file"] { display: none; }
+#sheet .field-label { display: block; font-size: 11px; color: var(--text2); margin-bottom: 4px; margin-top: 4px; }
+#sheet input[type="range"] { width: 100%; accent-color: var(--accent); }
+
+/* ---- Welcome ---- */
+#welcome {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  height: 100%; height: 100dvh; gap: 18px; padding: 24px;
+  padding-top: calc(24px + var(--safe-top));
+  padding-bottom: calc(24px + var(--safe-bot));
+}
+#welcome .pwa-hint {
+  font-size: 11px; color: var(--text2); text-align: center; max-width: 260px;
+  padding: 8px 12px; background: var(--surface); border-radius: 8px;
+  border: 1px solid rgba(255,255,255,.05); line-height: 1.5;
+}
+#welcome h1 { font-size: 26px; font-weight: 700; background: linear-gradient(135deg, var(--accent), var(--accent2)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; text-align: center; }
+#welcome p { color: var(--text2); font-size: 13px; max-width: 320px; text-align: center; line-height: 1.55; }
+#welcome .actions { display: flex; flex-direction: column; gap: 10px; width: 100%; max-width: 280px; }
+#welcome button, #welcome label {
+  padding: 13px 20px; border-radius: 10px; font-size: 15px; font-weight: 600; cursor: pointer;
+  border: 1px solid rgba(255,255,255,.1); width: 100%;
+  display: flex; align-items: center; justify-content: center;
+}
+#welcome .btn-primary { background: linear-gradient(135deg, var(--accent), var(--accent2)); color: #fff; border: none; }
+#welcome .btn-secondary { background: var(--surface2); color: var(--text); }
+
+/* ---- Grid ---- */
+#grid-wrap {
+  position: fixed; left: 0; right: 0; bottom: 0;
+  top: calc(44px + var(--safe-top));
+  overflow-y: auto; overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  padding-bottom: var(--safe-bot);
+}
+#grid { position: relative; width: 100%; }
+.thumb {
+  position: absolute; border-radius: var(--radius); overflow: hidden; cursor: pointer;
+  background: var(--surface);
+  contain: strict;
+}
+.thumb.active { outline: 2px solid var(--accent); outline-offset: -2px; }
+.thumb img {
+  width: 100%; height: 100%; object-fit: cover; display: block; opacity: 0;
+  transition: opacity .15s;
+}
+.thumb img.loaded { opacity: 1; }
+.thumb .badge {
+  position: absolute; top: 3px; left: 3px;
+  width: 18px; height: 18px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  pointer-events: none;
+  background: rgba(0,0,0,.55); color: #fff; font-size: 9px;
+}
+.thumb .badge svg { width: 10px; height: 10px; fill: #fff; }
+
+/* ---- Lightbox ---- */
+#lightbox {
+  position: fixed; inset: 0; z-index: 200; display: none;
+  background: #000;
+  touch-action: none;
+  height: 100%; height: 100dvh;
+}
+#lightbox.open { display: block; }
+#lb-stage {
+  position: absolute; inset: 0;
+  display: flex; align-items: center; justify-content: center;
+  overflow: hidden;
+  touch-action: none;
+}
+#lb-media {
+  max-width: 100vw; max-height: 100vh;
+  object-fit: contain;
+  user-select: none; -webkit-user-drag: none;
+  will-change: transform;
+  transform-origin: 0 0;
+}
+#lb-media.video-iframe {
+  width: 100vw; height: 100vh; border: 0;
+}
+video#lb-media { outline: none; max-width: 100vw; max-height: 100vh; }
+
+#lb-topbar {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 202;
+  padding: var(--safe-top) 12px 0;
+  height: calc(48px + var(--safe-top));
+  display: flex; align-items: center; gap: 10px;
+  background: linear-gradient(rgba(0,0,0,.75), transparent);
+  pointer-events: none;
+}
+#lb-topbar > * { pointer-events: auto; }
+#lb-close {
+  width: 36px; height: 36px; flex-shrink: 0;
+  border-radius: 50%; background: rgba(255,255,255,.12); border: none;
+  color: #fff; font-size: 22px; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+}
+#lb-info {
+  flex: 1; min-width: 0;
+  font-size: 12px; color: rgba(255,255,255,.85);
+}
+#lb-name {
+  display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  font-weight: 500;
+}
+#lb-meta {
+  display: block; font-size: 10px; color: rgba(255,255,255,.55);
+  font-variant-numeric: tabular-nums;
+}
+#lb-actions { display: flex; gap: 6px; }
+#lb-actions button {
+  width: 36px; height: 36px;
+  border-radius: 50%; background: rgba(255,255,255,.12); border: none;
+  color: #fff; font-size: 16px; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+}
+#lb-actions button:active { background: rgba(255,255,255,.25); }
+
+.lb-arrow {
+  position: fixed; top: 50%; transform: translateY(-50%); z-index: 201;
+  width: 44px; height: 44px; border-radius: 50%;
+  background: rgba(255,255,255,.1); border: none;
+  color: #fff; font-size: 22px; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+}
+#lb-prev { left: 8px; }
+#lb-next { right: 8px; }
+
+/* hide nav arrows on phones - rely on swipe */
+@media (max-width: 600px) {
+  .lb-arrow { display: none; }
+}
+
+/* Scrollbar */
+#grid-wrap::-webkit-scrollbar { width: 4px; }
+#grid-wrap::-webkit-scrollbar-track { background: transparent; }
+#grid-wrap::-webkit-scrollbar-thumb { background: rgba(255,255,255,.15); border-radius: 2px; }
+
+/* Loading */
+.loading { display: none; padding: 30px; }
+.loading.active { display: flex; align-items: center; justify-content: center; }
+.spinner { width: 28px; height: 28px; border: 2px solid rgba(255,255,255,.1); border-top-color: var(--accent); border-radius: 50%; animation: spin .5s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* Drive modal */
+#driveModal {
+  position: fixed; inset: 0; z-index: 300; display: none; align-items: center; justify-content: center;
+  background: rgba(0,0,0,.7); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+  padding: 16px;
+}
+#driveModal.open { display: flex; }
+#driveModal .modal {
+  background: var(--surface); border: 1px solid rgba(255,255,255,.08); border-radius: 14px;
+  padding: 22px; width: 100%; max-width: 420px;
+}
+#driveModal h2 { font-size: 17px; margin-bottom: 14px; }
+#driveModal p.hint { font-size: 12px; color: var(--text2); margin-bottom: 14px; line-height: 1.5; }
+#driveModal a { color: var(--accent); }
+#driveModal .field { margin-bottom: 12px; }
+#driveModal .field label { display: block; font-size: 11px; color: var(--text2); margin-bottom: 4px; }
+#driveModal .field input {
+  width: 100%; padding: 10px 12px; background: var(--surface2); border: 1px solid rgba(255,255,255,.1);
+  border-radius: 6px; color: var(--text); font-size: 13px; outline: none;
+}
+#driveModal .field input:focus { border-color: var(--accent); }
+#driveModal .btns { display: flex; gap: 8px; margin-top: 18px; justify-content: flex-end; }
+#driveModal .btns button { padding: 10px 18px; border-radius: 8px; font-size: 13px; cursor: pointer; border: none; font-weight: 500; }
+#driveModal .cancel { background: var(--surface3); color: var(--text); }
+#driveModal .connect { background: linear-gradient(135deg, var(--accent), var(--accent2)); color: #fff; font-weight: 600; }
+</style>
+</head>
+<body>
+
+<div id="topbar">
+  <button id="btnMenu" class="icon-btn" aria-label="Menu">☰</button>
+  <input type="text" id="filterInput" placeholder="Filter...">
+  <span id="counter"></span>
+</div>
+
+<div id="welcome">
+  <h1>Drive Viewer</h1>
+  <p>Snel media-bladeren op mobiel. Verbind Google Drive of pak foto's uit je bibliotheek.</p>
+  <div class="actions">
+    <button class="btn-primary" id="btnReconnect" style="display:none">🔄 Reconnect <span id="rcFolder" style="opacity:.7;font-weight:400"></span></button>
+    <button class="btn-primary" id="btnDrive">☁ Google Drive</button>
+    <label class="btn-secondary" for="folderPicker" id="folderPickerLabel">📁 Open map<input type="file" id="folderPicker" webkitdirectory multiple style="display:none"></label>
+  </div>
+  <div class="pwa-hint" id="pwaHint" style="display:none">
+    Tip: tik op <span style="font-weight:600">Deel</span> en kies <span style="font-weight:600">"Zet op beginscherm"</span> om als app te gebruiken.
+  </div>
+</div>
+
+<div id="grid-wrap" style="display:none">
+  <div id="grid"></div>
+  <div class="loading" id="loading"><div class="spinner"></div></div>
+</div>
+
+<!-- Sheet menu -->
+<div id="sheetBackdrop"></div>
+<div id="sheet">
+  <h3>Bron</h3>
+  <div class="row">
+    <button id="btnDriveSmall">☁ Drive</button>
+    <label for="folderPickerSmall">📁 Map<input type="file" id="folderPickerSmall" webkitdirectory multiple></label>
+  </div>
+  <h3>Sortering</h3>
+  <div class="row">
+    <select id="sortSelect">
+      <option value="date-new" selected>Nieuwste eerst</option>
+      <option value="date-old">Oudste eerst</option>
+      <option value="name-asc">A-Z</option>
+      <option value="name-desc">Z-A</option>
+    </select>
+  </div>
+  <span class="field-label">Thumbnail grootte</span>
+  <input type="range" id="sizeSlider" min="70" max="240" value="110">
+</div>
+
+<!-- Lightbox -->
+<div id="lightbox">
+  <div id="lb-stage"></div>
+  <div id="lb-topbar">
+    <button id="lb-close" aria-label="Sluit">&times;</button>
+    <div id="lb-info">
+      <span id="lb-name"></span>
+      <span id="lb-meta"></span>
+    </div>
+    <div id="lb-actions">
+      <button id="lb-prev-top" aria-label="Vorige">&#8249;</button>
+      <button id="lb-next-top" aria-label="Volgende">&#8250;</button>
+      <button id="lb-open" title="Open in Drive">↗</button>
+    </div>
+  </div>
+  <button class="lb-arrow" id="lb-prev" aria-label="Vorige">&#8249;</button>
+  <button class="lb-arrow" id="lb-next" aria-label="Volgende">&#8250;</button>
+</div>
+
+<!-- Drive modal -->
+<div id="driveModal">
+  <div class="modal">
+    <h2>Verbind met Google Drive</h2>
+    <p class="hint">OAuth Client ID via <a href="https://console.cloud.google.com/apis/credentials" target="_blank">console.cloud.google.com</a></p>
+    <div class="field"><label>Client ID</label><input id="driveClientId" placeholder="123...apps.googleusercontent.com" spellcheck="false" autocapitalize="off" autocomplete="off"></div>
+    <div class="field"><label>API Key (optioneel)</label><input id="driveApiKey" placeholder="AIza..." spellcheck="false" autocapitalize="off" autocomplete="off"></div>
+    <div class="field"><label>Map naam</label><input id="driveFolderName" value="ComfyUI-Results" spellcheck="false"></div>
+    <div class="btns"><button class="cancel" id="driveCancel">Annuleer</button><button class="connect" id="driveConnect">Verbind</button></div>
+  </div>
+</div>
+
+<script>
+// ─────────────────────────────────────────────
+// iOS detection
+// ─────────────────────────────────────────────
+const IS_IOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+const IS_STANDALONE = window.navigator.standalone === true || window.matchMedia('(display-mode: standalone)').matches;
+
+if (IS_IOS) {
+  // webkitdirectory does nothing on iOS Safari → switch to multi-file photo library picker
+  const fp = document.getElementById('folderPicker');
+  fp.removeAttribute('webkitdirectory');
+  fp.setAttribute('accept', 'image/*,video/*');
+  document.getElementById('folderPickerLabel').firstChild.textContent = '🖼 Kies foto\'s/video\'s';
+
+  const fps = document.getElementById('folderPickerSmall');
+  fps.removeAttribute('webkitdirectory');
+  fps.setAttribute('accept', 'image/*,video/*');
+
+  // Show PWA tip if not yet installed
+  if (!IS_STANDALONE) document.getElementById('pwaHint').style.display = 'block';
+}
+
+// ─────────────────────────────────────────────
+// State
+// ─────────────────────────────────────────────
+let allMedia = [], filtered = [], currentIdx = -1;
+let thumbSize = 110;
+const gap = 3;
+const $ = id => document.getElementById(id);
+const grid = $('grid'), gridWrap = $('grid-wrap'), topbar = $('topbar'), welcome = $('welcome');
+const lightbox = $('lightbox'), lbStage = $('lb-stage'), lbName = $('lb-name'), lbMeta = $('lb-meta');
+const filterInput = $('filterInput'), sortSelect = $('sortSelect'), counter = $('counter');
+const sheet = $('sheet'), sheetBackdrop = $('sheetBackdrop');
+
+const VIDEO_RE = /\.(mp4|webm|mov|avi|mkv|m4v)$/i;
+const MEDIA_RE = /\.(jpe?g|png|webp|gif|bmp|avif|mp4|webm|mov|m4v)$/i;
+const isVideo = name => VIDEO_RE.test(name);
+const isMedia = name => MEDIA_RE.test(name);
+function isExcluded(name) {
+  const lower = name.toLowerCase().replace(/\\/g, '/');
+  if (lower.includes('tmp/') || lower.includes('media_thumbs')) return true;
+  const base = lower.split('/').pop();
+  return /^debug_mask|^mask|_mask\.|^thumb/i.test(base);
+}
+
+// ─────────────────────────────────────────────
+// Sheet menu
+// ─────────────────────────────────────────────
+function openSheet() { sheet.classList.add('open'); sheetBackdrop.classList.add('open'); }
+function closeSheet() { sheet.classList.remove('open'); sheetBackdrop.classList.remove('open'); }
+$('btnMenu').addEventListener('click', openSheet);
+sheetBackdrop.addEventListener('click', closeSheet);
+
+// ─────────────────────────────────────────────
+// Thumb size slider
+// ─────────────────────────────────────────────
+$('sizeSlider').addEventListener('input', e => {
+  thumbSize = parseInt(e.target.value);
+  if (filtered.length && calcGridLayout()) {
+    for (const [i, el] of liveNodes) positionThumb(el, i);
+    syncVisibleNodes();
+  }
+});
+
+// ─────────────────────────────────────────────
+// Local folder
+// ─────────────────────────────────────────────
+function handleFolder(e) {
+  const files = Array.from(e.target.files).filter(f => isMedia(f.name) && !isExcluded(f.webkitRelativePath || f.name));
+  if (!files.length) return;
+  allMedia = files.map(f => {
+    const url = URL.createObjectURL(f);
+    return {
+      name: f.webkitRelativePath || f.name,
+      url, thumbUrl: url, fullUrl: url,
+      date: f.lastModified || Date.now(),
+      video: isVideo(f.name),
+      kind: 'local'
+    };
+  });
+  closeSheet();
+  showGrid();
+}
+$('folderPicker').addEventListener('change', handleFolder);
+$('folderPickerSmall').addEventListener('change', handleFolder);
+
+// ─────────────────────────────────────────────
+// Grid (virtual scroll)
+// ─────────────────────────────────────────────
+const liveNodes = new Map();
+let rafId = 0;
+let vCols = 0, vColW = 0, vRowH = 0, vTotalRows = 0;
+
+function calcGridLayout() {
+  const W = gridWrap.clientWidth;
+  if (!W) return false;
+  vCols = Math.max(2, Math.floor((W - gap) / (thumbSize + gap)));
+  vColW = (W - gap * (vCols + 1)) / vCols;
+  vRowH = vColW;
+  vTotalRows = Math.ceil(filtered.length / vCols);
+  grid.style.height = (vTotalRows * (vRowH + gap) + gap) + 'px';
+  return true;
+}
+
+function positionThumb(el, i) {
+  const row = Math.floor(i / vCols), col = i % vCols;
+  el.style.left = (gap + col * (vColW + gap)) + 'px';
+  el.style.top = (gap + row * (vRowH + gap)) + 'px';
+  el.style.width = vColW + 'px';
+  el.style.height = vRowH + 'px';
+}
+
+function showGrid() {
+  welcome.style.display = 'none';
+  topbar.classList.add('show');
+  gridWrap.style.display = 'block';
+  applyFilterSort();
+}
+
+function applyFilterSort() {
+  const q = filterInput.value.toLowerCase();
+  const s = sortSelect.value;
+  filtered = allMedia.filter(m => !q || m.name.toLowerCase().includes(q));
+  filtered.sort((a, b) => {
+    if (s === 'name-asc') return a.name.localeCompare(b.name);
+    if (s === 'name-desc') return b.name.localeCompare(a.name);
+    if (s === 'date-old') return a.date - b.date;
+    return b.date - a.date;
+  });
+  renderGrid();
+}
+
+function renderGrid() {
+  for (const [, el] of liveNodes) el.remove();
+  liveNodes.clear();
+  counter.textContent = filtered.length;
+  gridWrap.scrollTop = 0;
+  if (!calcGridLayout()) return;
+  syncVisibleNodes();
+}
+
+const VID_BADGE_SVG = '<svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>';
+
+function syncVisibleNodes() {
+  if (!vCols) return;
+  const scrollTop = gridWrap.scrollTop;
+  const viewportH = gridWrap.clientHeight;
+
+  let startRow = Math.floor(scrollTop / (vRowH + gap)) - 2;
+  let endRow = Math.ceil((scrollTop + viewportH) / (vRowH + gap)) + 2;
+  startRow = Math.max(0, startRow);
+  endRow = Math.min(vTotalRows - 1, endRow);
+
+  const startIdx = startRow * vCols;
+  const endIdx = Math.min(filtered.length - 1, (endRow + 1) * vCols - 1);
+
+  for (const [idx, el] of liveNodes) {
+    if (idx < startIdx || idx > endIdx) {
+      el.remove();
+      liveNodes.delete(idx);
+    }
+  }
+
+  for (let i = startIdx; i <= endIdx; i++) {
+    if (liveNodes.has(i)) continue;
+    const m = filtered[i];
+
+    const div = document.createElement('div');
+    div.className = 'thumb';
+    if (i === currentIdx) div.classList.add('active');
+    div.dataset.idx = i;
+    positionThumb(div, i);
+
+    const img = document.createElement('img');
+    img.loading = 'lazy';
+    img.decoding = 'async';
+    img.src = m.thumbUrl;
+    img.alt = '';
+    img.addEventListener('load', () => img.classList.add('loaded'), { once: true });
+    img.addEventListener('error', () => {
+      img.style.background = 'var(--surface3)';
+      img.classList.add('loaded');
+    }, { once: true });
+    div.appendChild(img);
+
+    if (m.video) {
+      const badge = document.createElement('div');
+      badge.className = 'badge';
+      badge.innerHTML = VID_BADGE_SVG;
+      div.appendChild(badge);
+    }
+
+    div.addEventListener('click', () => openLightbox(i));
+    grid.appendChild(div);
+    liveNodes.set(i, div);
+  }
+}
+
+function onGridScroll() {
+  if (rafId) return;
+  rafId = requestAnimationFrame(() => { rafId = 0; syncVisibleNodes(); });
+}
+gridWrap.addEventListener('scroll', onGridScroll, { passive: true });
+window.addEventListener('resize', () => {
+  if (filtered.length && calcGridLayout()) {
+    for (const [i, el] of liveNodes) positionThumb(el, i);
+    syncVisibleNodes();
+  }
+}, { passive: true });
+
+let filterTimer;
+filterInput.addEventListener('input', () => { clearTimeout(filterTimer); filterTimer = setTimeout(applyFilterSort, 150); });
+sortSelect.addEventListener('change', () => { applyFilterSort(); closeSheet(); });
+
+// ─────────────────────────────────────────────
+// Lightbox + pinch-zoom + swipe
+// ─────────────────────────────────────────────
+let lbEl = null;
+let scale = 1, panX = 0, panY = 0, isFitted = true;
+let naturalW = 0, naturalH = 0;
+const preloaded = new Map();
+
+function openLightbox(idx) {
+  currentIdx = idx;
+  showLightboxMedia();
+  lightbox.classList.add('open');
+  highlightThumb();
+  document.documentElement.style.overflow = 'hidden';
+}
+
+function closeLightbox() {
+  lightbox.classList.remove('open');
+  if (lbEl) {
+    if (lbEl.tagName === 'VIDEO') { try { lbEl.pause(); } catch {} }
+    lbEl.remove();
+    lbEl = null;
+  }
+  currentIdx = -1;
+  resetZoom();
+  document.documentElement.style.overflow = '';
+}
+
+function showLightboxMedia() {
+  const m = filtered[currentIdx];
+  if (!m) return;
+
+  if (lbEl) { lbEl.remove(); lbEl = null; }
+
+  if (m.video) {
+    if (m.kind === 'drive' && m.driveId) {
+      lbEl = document.createElement('iframe');
+      lbEl.id = 'lb-media';
+      lbEl.className = 'video-iframe';
+      lbEl.src = `https://drive.google.com/file/d/${m.driveId}/preview`;
+      lbEl.allow = 'autoplay; encrypted-media';
+      lbEl.allowFullscreen = true;
+    } else {
+      lbEl = document.createElement('video');
+      lbEl.id = 'lb-media';
+      lbEl.src = m.fullUrl || m.url;
+      lbEl.controls = true;
+      lbEl.autoplay = true;
+      lbEl.loop = true;
+      lbEl.playsInline = true;
+      lbEl.setAttribute('webkit-playsinline', 'true');
+      lbEl.addEventListener('loadedmetadata', () => {
+        naturalW = lbEl.videoWidth; naturalH = lbEl.videoHeight;
+        updateMeta(m);
+      });
+    }
+  } else {
+    lbEl = document.createElement('img');
+    lbEl.id = 'lb-media';
+    lbEl.draggable = false;
+    lbEl.src = m.fullUrl || m.url;
+    lbEl.addEventListener('load', () => {
+      naturalW = lbEl.naturalWidth; naturalH = lbEl.naturalHeight;
+      updateMeta(m);
+    }, { once: true });
+    lbEl.addEventListener('error', () => {
+      // Fall back to a bigger thumb if full-size image fails (Drive auth quirks)
+      if (m.kind === 'drive' && m.driveId && lbEl.src !== m.thumbUrl) {
+        lbEl.src = `https://drive.google.com/thumbnail?id=${m.driveId}&sz=w2048`;
+      }
+    }, { once: true });
+  }
+
+  lbStage.appendChild(lbEl);
+  resetZoom();
+  updateMeta(m);
+
+  // Preload next/prev images
+  for (const off of [1, -1, 2]) {
+    const ni = currentIdx + off;
+    if (ni >= 0 && ni < filtered.length && !filtered[ni].video && !preloaded.has(ni)) {
+      const img = new Image();
+      img.src = filtered[ni].fullUrl || filtered[ni].url;
+      preloaded.set(ni, img);
+    }
+  }
+  for (const [k] of preloaded) { if (Math.abs(k - currentIdx) > 3) preloaded.delete(k); }
+}
+
+function updateMeta(m) {
+  lbName.textContent = m.name.split('/').pop();
+  const dim = (naturalW && naturalH) ? `${naturalW}×${naturalH}` : '';
+  lbMeta.textContent = `${currentIdx + 1} / ${filtered.length}${dim ? '  ·  ' + dim : ''}`;
+}
+
+function navigate(dir) {
+  const next = currentIdx + dir;
+  if (next < 0 || next >= filtered.length) return;
+  if (lbEl && lbEl.tagName === 'VIDEO') { try { lbEl.pause(); } catch {} }
+  currentIdx = next;
+  resetZoom();
+  showLightboxMedia();
+  highlightThumb();
+  scrollThumbIntoView();
+}
+
+function highlightThumb() {
+  document.querySelectorAll('.thumb.active').forEach(t => t.classList.remove('active'));
+  const el = document.querySelector(`.thumb[data-idx="${currentIdx}"]`);
+  if (el) el.classList.add('active');
+}
+
+function scrollThumbIntoView() {
+  if (!vCols) return;
+  const row = Math.floor(currentIdx / vCols);
+  const top = gap + row * (vRowH + gap);
+  if (top < gridWrap.scrollTop) gridWrap.scrollTop = top - gap;
+  else if (top + vRowH + gap > gridWrap.scrollTop + gridWrap.clientHeight) {
+    gridWrap.scrollTop = top + vRowH + gap * 2 - gridWrap.clientHeight;
+  }
+  syncVisibleNodes();
+  highlightThumb();
+}
+
+function resetZoom() { scale = 1; panX = 0; panY = 0; isFitted = true; applyTransform(); }
+
+function applyTransform() {
+  if (!lbEl || lbEl.tagName === 'VIDEO' || lbEl.tagName === 'IFRAME') return;
+  if (isFitted) {
+    lbEl.style.transform = '';
+    lbEl.style.maxWidth = '100vw'; lbEl.style.maxHeight = '100vh';
+    lbEl.style.position = ''; lbEl.style.left = ''; lbEl.style.top = '';
+    lbEl.style.width = ''; lbEl.style.height = '';
+  } else {
+    const vw = window.innerWidth, vh = window.innerHeight;
+    const ar = naturalW / naturalH;
+    let fw, fh;
+    if (vw / vh > ar) { fh = vh; fw = fh * ar; } else { fw = vw; fh = fw / ar; }
+    lbEl.style.maxWidth = 'none'; lbEl.style.maxHeight = 'none';
+    lbEl.style.width = fw + 'px'; lbEl.style.height = fh + 'px';
+    lbEl.style.position = 'absolute';
+    lbEl.style.left = (vw / 2 - fw / 2 + panX) + 'px';
+    lbEl.style.top = (vh / 2 - fh / 2 + panY) + 'px';
+    lbEl.style.transform = `scale(${scale})`;
+  }
+}
+
+// Touch gestures: 1-finger swipe (when not zoomed) / pan (when zoomed), 2-finger pinch
+let touchMode = null; // 'swipe' | 'pan' | 'pinch'
+let t1x = 0, t1y = 0, panSX = 0, panSY = 0;
+let pinchStartDist = 0, pinchStartScale = 1, pinchCx = 0, pinchCy = 0;
+let swipeStartTime = 0;
+let lastTap = 0;
+// Prevents accidental swipe navigation after a pinch gesture in the same touch sequence
+let hadPinch = false;
+
+function dist(a, b) { const dx = a.clientX - b.clientX, dy = a.clientY - b.clientY; return Math.hypot(dx, dy); }
+
+function clearTouchState() {
+  touchMode = null;
+  hadPinch = false;
+}
+
+lightbox.addEventListener('touchstart', e => {
+  if (!lbEl || lbEl.tagName === 'IFRAME') return;
+  if (e.touches.length >= 2) {
+    hadPinch = true;
+    touchMode = 'pinch';
+    pinchStartDist = dist(e.touches[0], e.touches[1]);
+    pinchStartScale = scale;
+    pinchCx = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+    pinchCy = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+    // Enter zoomed mode (use scale=1 until fingers actually move)
+    if (isFitted) { isFitted = false; scale = 1; }
+    // Clear any swipe visual offset
+    if (lbEl.tagName === 'IMG') { lbEl.style.transition = ''; lbEl.style.transform = ''; }
+    e.preventDefault();
+  } else if (e.touches.length === 1 && !hadPinch) {
+    t1x = e.touches[0].clientX; t1y = e.touches[0].clientY;
+    swipeStartTime = Date.now();
+    if (!isFitted && lbEl.tagName === 'IMG') {
+      touchMode = 'pan'; panSX = panX; panSY = panY;
+    } else if (lbEl.tagName === 'IMG') {
+      touchMode = 'swipe';
+    } else {
+      touchMode = null; // video has its own controls
+    }
+  }
+}, { passive: false });
+
+lightbox.addEventListener('touchmove', e => {
+  if (!lbEl || lbEl.tagName === 'IFRAME') return;
+  if (touchMode === 'pinch' && e.touches.length >= 2) {
+    e.preventDefault();
+    const d = dist(e.touches[0], e.touches[1]);
+    const ns = Math.max(0.5, Math.min(8, pinchStartScale * (d / pinchStartDist)));
+    // Update pinch center as fingers move for accurate focal-point zooming
+    const newCx = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+    const newCy = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+    const rect = lbEl.getBoundingClientRect();
+    const ratio = ns / scale;
+    panX -= (newCx - rect.left) * (ratio - 1);
+    panY -= (newCy - rect.top) * (ratio - 1);
+    // Also follow pinch-center pan (fingers moving together translates the image)
+    panX += newCx - pinchCx;
+    panY += newCy - pinchCy;
+    pinchCx = newCx;
+    pinchCy = newCy;
+    scale = ns;
+    applyTransform();
+  } else if (touchMode === 'pan' && e.touches.length === 1) {
+    e.preventDefault();
+    panX = panSX + (e.touches[0].clientX - t1x);
+    panY = panSY + (e.touches[0].clientY - t1y);
+    applyTransform();
+  } else if (touchMode === 'swipe' && e.touches.length === 1) {
+    const dx = e.touches[0].clientX - t1x;
+    const dy = e.touches[0].clientY - t1y;
+    // Only rubber-band in X when gesture is clearly horizontal
+    if (Math.abs(dx) > 8 && Math.abs(dx) > Math.abs(dy) * 1.5) {
+      e.preventDefault();
+      // Rubber-band resistance at ends of the gallery
+      const atEdge = (dx > 0 && currentIdx === 0) || (dx < 0 && currentIdx === filtered.length - 1);
+      const factor = atEdge ? 0.25 : 0.45;
+      lbEl.style.transform = `translateX(${dx * factor}px)`;
+    }
+  }
+}, { passive: false });
+
+lightbox.addEventListener('touchend', e => {
+  if (touchMode === 'swipe' && !hadPinch && e.changedTouches.length === 1) {
+    const dx = e.changedTouches[0].clientX - t1x;
+    const dy = e.changedTouches[0].clientY - t1y;
+    const dt = Math.max(1, Date.now() - swipeStartTime);
+    const vx = Math.abs(dx) / dt; // px/ms
+
+    // Animate swipe offset back before navigating or snapping
+    if (lbEl.style.transform) {
+      lbEl.style.transition = 'transform 0.2s ease';
+      lbEl.style.transform = '';
+      setTimeout(() => { if (lbEl) lbEl.style.transition = ''; }, 220);
+    }
+
+    const isHorizontal = Math.abs(dx) > Math.abs(dy) * 1.2;
+    const swipeOk = isHorizontal && (Math.abs(dx) > 50 || vx > 0.25) && dt < 700;
+
+    if (swipeOk) {
+      navigate(dx > 0 ? -1 : 1);
+    } else if (Math.abs(dy) > 80 && Math.abs(dy) > Math.abs(dx) * 1.5 && dy > 0) {
+      // Swipe down to close
+      closeLightbox();
+    } else if (Math.abs(dx) < 10 && Math.abs(dy) < 10 && dt < 300) {
+      // Tap → check double-tap to zoom
+      const now = Date.now();
+      if (now - lastTap < 350 && lbEl.tagName === 'IMG') {
+        if (isFitted) {
+          isFitted = false;
+          scale = 2.5;
+          // Correct anchor: keep the tapped screen point fixed under the zoom
+          const rect = lbEl.getBoundingClientRect();
+          panX = -(t1x - rect.left) * (scale - 1);
+          panY = -(t1y - rect.top) * (scale - 1);
+        } else {
+          resetZoom();
+        }
+        applyTransform();
+        lastTap = 0;
+      } else {
+        lastTap = now;
+      }
+    }
+  } else if (touchMode === 'pinch' && e.touches.length === 0) {
+    // Auto-snap back to fit when pinch barely moved (accidental touch or zoom-out past fit)
+    if (scale < 1.08) {
+      resetZoom();
+    }
+  }
+  if (e.touches.length === 0) clearTouchState();
+}, { passive: true });
+
+// Reset state when the browser cancels the touch (e.g. iOS system gesture, notification)
+lightbox.addEventListener('touchcancel', () => {
+  if (lbEl && lbEl.tagName === 'IMG') { lbEl.style.transition = ''; lbEl.style.transform = ''; applyTransform(); }
+  clearTouchState();
+});
+
+// Buttons
+const prevHandler = e => { e.stopPropagation(); navigate(-1); };
+const nextHandler = e => { e.stopPropagation(); navigate(1); };
+$('lb-prev').addEventListener('click', prevHandler);
+$('lb-next').addEventListener('click', nextHandler);
+$('lb-prev-top').addEventListener('click', prevHandler);
+$('lb-next-top').addEventListener('click', nextHandler);
+$('lb-close').addEventListener('click', closeLightbox);
+$('lb-open').addEventListener('click', () => {
+  const m = filtered[currentIdx];
+  if (!m) return;
+  if (m.kind === 'drive' && m.driveId) {
+    window.open(`https://drive.google.com/file/d/${m.driveId}/view`, '_blank');
+  } else {
+    window.open(m.fullUrl || m.url, '_blank');
+  }
+});
+
+// Keyboard (desktop fallback)
+document.addEventListener('keydown', e => {
+  if (document.activeElement === filterInput && e.key !== 'Escape') return;
+  if ($('driveModal').classList.contains('open')) {
+    if (e.key === 'Escape') $('driveModal').classList.remove('open');
+    return;
+  }
+  if (lightbox.classList.contains('open')) {
+    switch (e.key) {
+      case 'Escape': closeLightbox(); break;
+      case 'ArrowLeft': navigate(-1); break;
+      case 'ArrowRight': navigate(1); break;
+      case '0': case 'f': case 'F': resetZoom(); break;
+    }
+  }
+});
+
+// Drag & drop (desktop)
+document.addEventListener('dragover', e => e.preventDefault());
+document.addEventListener('drop', async e => {
+  e.preventDefault();
+  const items = e.dataTransfer.items;
+  if (items && items.length && items[0].webkitGetAsEntry) {
+    const entry = items[0].webkitGetAsEntry();
+    if (entry && entry.isDirectory) return readDirEntry(entry);
+  }
+  const files = Array.from(e.dataTransfer.files).filter(f => isMedia(f.name) && !isExcluded(f.name));
+  if (files.length) {
+    allMedia = files.map(f => {
+      const url = URL.createObjectURL(f);
+      return { name: f.name, url, thumbUrl: url, fullUrl: url, date: f.lastModified || Date.now(), video: isVideo(f.name), kind: 'local' };
+    });
+    showGrid();
+  }
+});
+
+async function readDirEntry(root) {
+  const files = [];
+  async function walk(entry, prefix) {
+    if (entry.isFile) {
+      const f = await new Promise(r => entry.file(r));
+      if (isMedia(f.name) && !isExcluded(f.name)) {
+        const url = URL.createObjectURL(f);
+        files.push({ name: prefix + f.name, url, thumbUrl: url, fullUrl: url, date: f.lastModified || Date.now(), video: isVideo(f.name), kind: 'local' });
+      }
+    } else if (entry.isDirectory) {
+      const reader = entry.createReader();
+      const entries = await new Promise(r => reader.readEntries(r));
+      for (const e of entries) await walk(e, prefix + entry.name + '/');
+    }
+  }
+  const reader = root.createReader();
+  const entries = await new Promise(r => reader.readEntries(r));
+  for (const e of entries) await walk(e, '');
+  if (files.length) { allMedia = files; showGrid(); }
+}
+
+// ─────────────────────────────────────────────
+// Google Drive
+// ─────────────────────────────────────────────
+let gapiOk = false, gisOk = false, gapiInited = false, driveToken = null;
+let preloadPromise = null;
+
+function loadScript(src) {
+  return new Promise((res, rej) => {
+    const s = document.createElement('script');
+    s.src = src; s.async = true; s.defer = true;
+    s.onload = res; s.onerror = rej;
+    document.head.appendChild(s);
+  });
+}
+
+// Preload Google libs eagerly so OAuth popup is not blocked by Safari
+// (popup must open synchronously after user click — async script loading would defer it)
+function preloadGoogle() {
+  if (preloadPromise) return preloadPromise;
+  preloadPromise = (async () => {
+    if (!gapiOk) { await loadScript('https://apis.google.com/js/api.js'); gapiOk = true; }
+    if (!gisOk) { await loadScript('https://accounts.google.com/gsi/client'); gisOk = true; }
+    await new Promise(r => gapi.load('client', r));
+    await gapi.client.init({ discoveryDocs: ['https://www.googleapis.com/discovery/v1/apis/drive/v3/rest'] });
+    gapiInited = true;
+  })();
+  return preloadPromise;
+}
+
+// Kick off preload on first user interaction (or when modal opens)
+let preloadStarted = false;
+function maybePreload() {
+  if (preloadStarted) return;
+  preloadStarted = true;
+  preloadGoogle().catch(() => { preloadStarted = false; preloadPromise = null; });
+}
+window.addEventListener('pointerdown', maybePreload, { once: true, passive: true });
+window.addEventListener('touchstart', maybePreload, { once: true, passive: true });
+
+$('btnDrive').addEventListener('click', () => { maybePreload(); $('driveModal').classList.add('open'); });
+$('btnDriveSmall').addEventListener('click', () => { maybePreload(); closeSheet(); $('driveModal').classList.add('open'); });
+$('driveCancel').addEventListener('click', () => $('driveModal').classList.remove('open'));
+
+if (localStorage.getItem('dv_clientId')) {
+  $('driveClientId').value = localStorage.getItem('dv_clientId');
+  $('driveApiKey').value = localStorage.getItem('dv_apiKey') || '';
+  $('driveFolderName').value = localStorage.getItem('dv_folder') || 'ComfyUI-Results';
+  $('rcFolder').textContent = '· ' + (localStorage.getItem('dv_folder') || 'ComfyUI-Results');
+  $('btnReconnect').style.display = 'flex';
+}
+
+$('btnReconnect').addEventListener('click', async () => {
+  const cid = localStorage.getItem('dv_clientId');
+  const folder = localStorage.getItem('dv_folder') || 'ComfyUI-Results';
+  if (!cid) return;
+  maybePreload();
+  try { await initDrive(cid, folder); }
+  catch (err) { console.error(err); alert('Drive fout:\n\n' + describeError(err)); $('loading').classList.remove('active'); }
+});
+
+$('driveConnect').addEventListener('click', async () => {
+  const cid = $('driveClientId').value.trim();
+  const folder = $('driveFolderName').value.trim() || 'ComfyUI-Results';
+  if (!cid) { $('driveClientId').focus(); return; }
+  localStorage.setItem('dv_clientId', cid);
+  localStorage.setItem('dv_apiKey', $('driveApiKey').value.trim());
+  localStorage.setItem('dv_folder', folder);
+  $('driveModal').classList.remove('open');
+  try {
+    await initDrive(cid, folder);
+  } catch (err) {
+    console.error('Drive fout:', err);
+    alert('Drive fout:\n\n' + describeError(err));
+    $('loading').classList.remove('active');
+  }
+});
+
+function describeError(err) {
+  if (!err) return 'Onbekende fout';
+  // gapi error shape: { result: { error: { code, message, errors: [...] } }, status, statusText, body }
+  if (err.result && err.result.error) {
+    const e = err.result.error;
+    let msg = `[${e.code}] ${e.message || ''}`;
+    if (e.code === 403 && /not.*enabled|disabled|drive\.googleapis/i.test(e.message || '')) {
+      msg += '\n\n→ Drive API is niet geactiveerd voor dit project.\n   Ga naar:\n   https://console.cloud.google.com/apis/library/drive.googleapis.com\n   en klik ENABLE.';
+    } else if (e.code === 401) {
+      msg += '\n\n→ Token ongeldig — verbind opnieuw.';
+    } else if (e.code === 403) {
+      msg += '\n\n→ Geen toegang. Check OAuth scopes en consent screen.';
+    }
+    return msg;
+  }
+  // GIS oauth error shape: { type: 'popup_closed', ... } or string
+  if (err.type) return `OAuth: ${err.type}${err.message ? ' — ' + err.message : ''}`;
+  if (err.message) return err.message;
+  if (typeof err === 'string') return err;
+  try { return JSON.stringify(err, null, 2).slice(0, 600); } catch { return String(err); }
+}
+
+async function initDrive(clientId, folderName) {
+  $('loading').classList.add('active');
+  welcome.style.display = 'none';
+  topbar.classList.add('show');
+  gridWrap.style.display = 'block';
+  counter.textContent = '...';
+
+  // Wait for preloaded libs (started on first interaction). If preload failed,
+  // try once more — but token request itself must run synchronously after this.
+  try {
+    if (!gapiInited) await preloadGoogle();
+  } catch (e) {
+    // retry once
+    preloadPromise = null;
+    await preloadGoogle();
+  }
+
+  driveToken = await new Promise((resolve, reject) => {
+    const tc = google.accounts.oauth2.initTokenClient({
+      client_id: clientId,
+      scope: 'https://www.googleapis.com/auth/drive.readonly',
+      callback: resp => {
+        if (resp.access_token) resolve(resp.access_token);
+        else reject(new Error('Geen access token ontvangen'));
+      },
+      error_callback: err => reject(new Error(err.message || 'OAuth geannuleerd'))
+    });
+    // prompt:'' = silent re-auth als al eerder toestemming gegeven, anders popup
+    tc.requestAccessToken({ prompt: '' });
+  });
+  gapi.client.setToken({ access_token: driveToken });
+
+  const fr = await gapi.client.drive.files.list({
+    q: `name='${folderName.replace(/'/g, "\\'")}' and mimeType='application/vnd.google-apps.folder' and trashed=false`,
+    fields: 'files(id,name)', pageSize: 5
+  });
+  if (!fr.result.files || !fr.result.files.length) {
+    alert(`Map "${folderName}" niet gevonden`);
+    $('loading').classList.remove('active');
+    return;
+  }
+
+  const media = [];
+  counter.textContent = 'Scannen...';
+  $('loading').classList.remove('active');
+
+  // Progressive rendering: refresh grid throttled while scan runs
+  let renderTimer = 0;
+  let gridShown = false;
+  function progressiveRender() {
+    if (renderTimer) return;
+    renderTimer = setTimeout(() => {
+      renderTimer = 0;
+      allMedia = media;
+      if (!gridShown) { gridShown = true; showGrid(); }
+      else { applyFilterSort(); }
+    }, 350);
+  }
+
+  // Concurrency-limited parallel scan: traverse folder tree with up to N
+  // simultaneous Drive API requests. ~10 is a good balance vs Drive rate limits.
+  const CONCURRENCY = 10;
+  let active = 0;
+  const queue = [];
+  function runNext() {
+    while (active < CONCURRENCY && queue.length) {
+      const task = queue.shift();
+      active++;
+      task().finally(() => { active--; runNext(); });
+    }
+  }
+  function schedule(fn) {
+    return new Promise((resolve, reject) => {
+      queue.push(() => fn().then(resolve, reject));
+      runNext();
+    });
+  }
+
+  async function scanFolder(fid, prefix) {
+    const subfolders = [];
+    let pt = null;
+    do {
+      const r = await gapi.client.drive.files.list({
+        q: `'${fid}' in parents and trashed=false`,
+        fields: 'nextPageToken,files(id,name,mimeType,modifiedTime,thumbnailLink)',
+        pageSize: 1000, pageToken: pt, orderBy: 'modifiedTime desc'
+      });
+      for (const f of r.result.files) {
+        if (f.mimeType === 'application/vnd.google-apps.folder') {
+          if (/^tmp$/i.test(f.name)) continue;
+          subfolders.push({ id: f.id, prefix: prefix + f.name + '/' });
+        } else if ((f.mimeType.startsWith('image/') || f.mimeType.startsWith('video/')) && !isExcluded(prefix + f.name)) {
+          const v = f.mimeType.startsWith('video/');
+          const baseThumb = f.thumbnailLink ? f.thumbnailLink.replace(/=s\d+(-c)?$/, '') : null;
+          const thumbUrl = baseThumb
+            ? baseThumb + '=s200'
+            : `https://drive.google.com/thumbnail?id=${f.id}&sz=w200`;
+          const fullUrl = v
+            ? null
+            : (baseThumb ? baseThumb + '=s2048' : `https://drive.google.com/thumbnail?id=${f.id}&sz=w2048`);
+          media.push({
+            name: prefix + f.name, driveId: f.id, video: v,
+            url: fullUrl, fullUrl, thumbUrl,
+            date: new Date(f.modifiedTime).getTime(),
+            kind: 'drive'
+          });
+        }
+      }
+      pt = r.result.nextPageToken;
+      counter.textContent = `${media.length}...`;
+      progressiveRender();
+    } while (pt);
+    // Fan out into all subfolders in parallel (limited by global semaphore)
+    await Promise.all(subfolders.map(sf => schedule(() => scanFolder(sf.id, sf.prefix))));
+  }
+
+  await schedule(() => scanFolder(fr.result.files[0].id, ''));
+
+  // Final flush
+  if (renderTimer) { clearTimeout(renderTimer); renderTimer = 0; }
+  allMedia = media;
+  if (!gridShown) showGrid(); else applyFilterSort();
+  counter.textContent = media.length;
+}
+</script>
+</body>
+</html>
