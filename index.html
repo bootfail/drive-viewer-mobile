@@ -630,9 +630,9 @@ function showLightboxMedia() {
       updateMeta(m);
     }, { once: true });
     lbEl.addEventListener('error', () => {
-      // Fall back to a bigger thumb if full-size image fails (Drive auth quirks)
+      // Retry with the thumbnail URL in case the full-size URL failed
       if (m.kind === 'drive' && m.driveId && lbEl.src !== m.thumbUrl) {
-        lbEl.src = `https://drive.google.com/thumbnail?id=${m.driveId}&sz=w2048`;
+        lbEl.src = m.thumbUrl;
       }
     }, { once: true });
   }
@@ -930,6 +930,59 @@ async function readDirEntry(root) {
 // ─────────────────────────────────────────────
 let gapiOk = false, gisOk = false, gapiInited = false, driveToken = null;
 let preloadPromise = null;
+let _currentClientId = null, _tokenRefreshTimer = null;
+
+// ── Drive listing cache (localStorage) ──────────────────────────────────────
+const DV_CACHE_KEY = 'dv_scan_cache';
+const DV_CACHE_MAX = 20000; // cap to stay well under 5MB localStorage limit
+
+function saveDriveCache(folderName, items) {
+  try {
+    // Store only essential fields; reconstruct URLs from driveId at load time
+    const minimal = items.slice(0, DV_CACHE_MAX).map(m => [m.driveId, m.name, m.date, m.video ? 1 : 0]);
+    localStorage.setItem(DV_CACHE_KEY, JSON.stringify({ folder: folderName, ts: Date.now(), items: minimal }));
+  } catch (e) {}
+}
+
+function loadDriveCache(folderName) {
+  try {
+    const raw = localStorage.getItem(DV_CACHE_KEY);
+    if (!raw) return null;
+    const { folder, ts, items: minimal } = JSON.parse(raw);
+    if (folder !== folderName || !minimal?.length) return null;
+    return {
+      ts,
+      items: minimal.map(([id, name, date, vid]) => ({
+        driveId: id, name, date, video: !!vid, kind: 'drive',
+        thumbUrl: `https://drive.google.com/thumbnail?id=${id}&sz=w200`,
+        fullUrl:  vid ? null : `https://drive.google.com/thumbnail?id=${id}&sz=w2048`,
+        url:      vid ? null : `https://drive.google.com/thumbnail?id=${id}&sz=w2048`,
+      })),
+    };
+  } catch (e) { return null; }
+}
+
+// ── Token auto-refresh ───────────────────────────────────────────────────────
+function scheduleTokenRefresh() {
+  if (_tokenRefreshTimer) clearTimeout(_tokenRefreshTimer);
+  _tokenRefreshTimer = setTimeout(async () => {
+    if (!_currentClientId || !gapiInited) return;
+    try {
+      const token = await new Promise((resolve, reject) => {
+        const tc = google.accounts.oauth2.initTokenClient({
+          client_id: _currentClientId,
+          scope: 'https://www.googleapis.com/auth/drive.readonly',
+          callback: r => r.access_token ? resolve(r.access_token) : reject(new Error('geen token')),
+          error_callback: reject,
+        });
+        tc.requestAccessToken({ prompt: '' }); // silent — no popup
+      });
+      driveToken = token;
+      gapi.client.setToken({ access_token: token });
+      scheduleTokenRefresh(); // next refresh in 50 min
+    } catch (_) { /* silent — user reconnects manually if needed */ }
+  }, 50 * 60 * 1000); // 50 min (tokens expire at 60 min)
+}
 
 function loadScript(src) {
   return new Promise((res, rej) => {
@@ -1025,11 +1078,20 @@ function describeError(err) {
 }
 
 async function initDrive(clientId, folderName) {
+  _currentClientId = clientId;
   $('loading').classList.add('active');
   welcome.style.display = 'none';
   topbar.classList.add('show');
   gridWrap.style.display = 'block';
   counter.textContent = '...';
+
+  // Restore from cache immediately so the grid is usable while scanning
+  const cached = loadDriveCache(folderName);
+  if (cached && cached.items.length > 0) {
+    allMedia = cached.items;
+    showGrid();
+    counter.textContent = `${cached.items.length} (cache)`;
+  }
 
   // Wait for preloaded libs (started on first interaction). If preload failed,
   // try once more — but token request itself must run synchronously after this.
@@ -1055,6 +1117,7 @@ async function initDrive(clientId, folderName) {
     tc.requestAccessToken({ prompt: '' });
   });
   gapi.client.setToken({ access_token: driveToken });
+  scheduleTokenRefresh(); // auto-refresh token at 50 min
 
   const fr = await gapi.client.drive.files.list({
     q: `name='${folderName.replace(/'/g, "\\'")}' and mimeType='application/vnd.google-apps.folder' and trashed=false`,
@@ -1117,13 +1180,9 @@ async function initDrive(clientId, folderName) {
           subfolders.push({ id: f.id, prefix: prefix + f.name + '/' });
         } else if ((f.mimeType.startsWith('image/') || f.mimeType.startsWith('video/')) && !isExcluded(prefix + f.name)) {
           const v = f.mimeType.startsWith('video/');
-          const baseThumb = f.thumbnailLink ? f.thumbnailLink.replace(/=s\d+(-c)?$/, '') : null;
-          const thumbUrl = baseThumb
-            ? baseThumb + '=s200'
-            : `https://drive.google.com/thumbnail?id=${f.id}&sz=w200`;
-          const fullUrl = v
-            ? null
-            : (baseThumb ? baseThumb + '=s2048' : `https://drive.google.com/thumbnail?id=${f.id}&sz=w2048`);
+          // Use cookie-based thumbnail URLs — these never expire (unlike signed thumbnailLink)
+          const thumbUrl = `https://drive.google.com/thumbnail?id=${f.id}&sz=w200`;
+          const fullUrl  = v ? null : `https://drive.google.com/thumbnail?id=${f.id}&sz=w2048`;
           media.push({
             name: prefix + f.name, driveId: f.id, video: v,
             url: fullUrl, fullUrl, thumbUrl,
@@ -1147,6 +1206,7 @@ async function initDrive(clientId, folderName) {
   allMedia = media;
   if (!gridShown) showGrid(); else refreshGrid();
   counter.textContent = media.length;
+  saveDriveCache(folderName, media);
 }
 </script>
 </body>
