@@ -1173,7 +1173,7 @@ async function initDrive(clientId, folderName) {
     const r = await gapi.client.drive.files.list({
       q: `'${folderId}' in ancestors and (mimeType contains 'image/' or mimeType contains 'video/') and trashed=false`,
       fields: 'nextPageToken,files(id,name,mimeType,modifiedTime,thumbnailLink,parents)',
-      pageSize: 1000, pageToken: filePt, orderBy: 'modifiedTime desc',
+      pageSize: 1000, pageToken: filePt,
     });
     for (const f of r.result.files) {
       if (isExcluded(f.name)) continue;
