@@ -1131,89 +1131,87 @@ async function initDrive(clientId, folderName) {
     return;
   }
 
+  const folderId = fr.result.files[0].id;
   const media = [];
   counter.textContent = 'Scannen...';
   $('loading').classList.remove('active');
 
-  // Progressive rendering: refresh grid throttled while scan runs
+  // Progressive rendering: throttled refresh while scan runs
   let renderTimer = 0;
   let gridShown = false;
   function progressiveRender() {
     if (renderTimer) return;
     renderTimer = setTimeout(() => {
       renderTimer = 0;
-      allMedia = media;
+      allMedia = media.slice(); // snapshot
       if (!gridShown) { gridShown = true; showGrid(); }
       else { refreshGrid(); }
-    }, 350);
+    }, 400);
   }
 
-  // Concurrency-limited parallel scan: traverse folder tree with up to N
-  // simultaneous Drive API requests. ~10 is a good balance vs Drive rate limits.
-  const CONCURRENCY = 10;
-  let active = 0;
-  const queue = [];
-  function runNext() {
-    while (active < CONCURRENCY && queue.length) {
-      const task = queue.shift();
-      active++;
-      task().finally(() => { active--; runNext(); });
-    }
-  }
-  function schedule(fn) {
-    return new Promise((resolve, reject) => {
-      queue.push(() => fn().then(resolve, reject));
-      runNext();
-    });
-  }
-
-  async function scanFolder(fid, prefix) {
-    const subfolders = [];
+  // Step 1: fetch direct subfolder names so we can reconstruct paths.
+  // For ComfyUI-Results/<job_id>/<file> this is one level = ~8 paginated calls.
+  // Run concurrently with the file scan so it doesn't add latency.
+  const folderMap = {}; // parentId → folderName
+  const folderMapReady = (async () => {
     let pt = null;
     do {
       const r = await gapi.client.drive.files.list({
-        q: `'${fid}' in parents and trashed=false`,
-        fields: 'nextPageToken,files(id,name,mimeType,modifiedTime,thumbnailLink)',
-        pageSize: 1000, pageToken: pt, orderBy: 'modifiedTime desc'
+        q: `'${folderId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`,
+        fields: 'nextPageToken,files(id,name)',
+        pageSize: 1000, pageToken: pt,
       });
-      for (const f of r.result.files) {
-        if (f.mimeType === 'application/vnd.google-apps.folder') {
-          if (/^tmp$/i.test(f.name)) continue;
-          subfolders.push({ id: f.id, prefix: prefix + f.name + '/' });
-        } else if ((f.mimeType.startsWith('image/') || f.mimeType.startsWith('video/')) && !isExcluded(prefix + f.name)) {
-          const v = f.mimeType.startsWith('video/');
-          // thumbnailLink is a signed URL valid for days — strip the size suffix so we
-          // can request any size. Fall back to the cookie-based URL if Drive omits it.
-          const baseThumb = f.thumbnailLink ? f.thumbnailLink.replace(/=s\d+(-c)?$/, '') : null;
-          const thumbUrl = baseThumb
-            ? baseThumb + '=s200'
-            : `https://drive.google.com/thumbnail?id=${f.id}&sz=w200`;
-          const fullUrl = v
-            ? null
-            : (baseThumb ? baseThumb + '=s2048' : `https://drive.google.com/thumbnail?id=${f.id}&sz=w2048`);
-          media.push({
-            name: prefix + f.name, driveId: f.id, video: v,
-            url: fullUrl, fullUrl, thumbUrl,
-            thumbBase: baseThumb, // stored in cache so restored items still have signed URLs
-            date: new Date(f.modifiedTime).getTime(),
-            kind: 'drive'
-          });
-        }
-      }
+      for (const f of r.result.files) folderMap[f.id] = f.name;
       pt = r.result.nextPageToken;
-      counter.textContent = `${media.length}...`;
-      progressiveRender();
     } while (pt);
-    // Fan out into all subfolders in parallel (limited by global semaphore)
-    await Promise.all(subfolders.map(sf => schedule(() => scanFolder(sf.id, sf.prefix))));
-  }
+  })();
 
-  await schedule(() => scanFolder(fr.result.files[0].id, ''));
+  // Step 2: 'in ancestors' fetches ALL files recursively in one paginated search.
+  // For 41k files this is ~42 calls instead of 7900 per-folder calls → 30-60x faster.
+  let filePt = null;
+  do {
+    const r = await gapi.client.drive.files.list({
+      q: `'${folderId}' in ancestors and (mimeType contains 'image/' or mimeType contains 'video/') and trashed=false`,
+      fields: 'nextPageToken,files(id,name,mimeType,modifiedTime,thumbnailLink,parents)',
+      pageSize: 1000, pageToken: filePt, orderBy: 'modifiedTime desc',
+    });
+    for (const f of r.result.files) {
+      if (isExcluded(f.name)) continue;
+      const v = f.mimeType.startsWith('video/');
+      const parentId = f.parents?.[0] ?? '';
+      const parentName = folderMap[parentId] ?? ''; // may be '' if folderMap not done yet
+      const prefix = parentName ? parentName + '/' : '';
+      const baseThumb = f.thumbnailLink ? f.thumbnailLink.replace(/=s\d+(-c)?$/, '') : null;
+      const thumbUrl = baseThumb ? baseThumb + '=s200' : `https://drive.google.com/thumbnail?id=${f.id}&sz=w200`;
+      const fullUrl  = v ? null : (baseThumb ? baseThumb + '=s2048' : `https://drive.google.com/thumbnail?id=${f.id}&sz=w2048`);
+      media.push({
+        name: prefix + f.name, driveId: f.id, video: v,
+        url: fullUrl, fullUrl, thumbUrl, thumbBase: baseThumb,
+        date: new Date(f.modifiedTime).getTime(),
+        _parentId: parentId, // keep for path fixup below
+        kind: 'drive',
+      });
+    }
+    filePt = r.result.nextPageToken;
+    counter.textContent = `${media.length}...`;
+    progressiveRender();
+  } while (filePt);
+
+  // Wait for folder map, then fix any paths that were resolved before map was ready
+  await folderMapReady;
+  let anyFixed = false;
+  for (const m of media) {
+    if (!m.name.includes('/') && m._parentId && folderMap[m._parentId]) {
+      m.name = folderMap[m._parentId] + '/' + m.name;
+      anyFixed = true;
+    }
+  }
 
   // Final flush
   if (renderTimer) { clearTimeout(renderTimer); renderTimer = 0; }
   allMedia = media;
   if (!gridShown) showGrid(); else refreshGrid();
+  if (anyFixed) refreshGrid();
   counter.textContent = media.length;
   saveDriveCache(folderName, media);
 }
