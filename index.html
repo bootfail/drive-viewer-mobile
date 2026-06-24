@@ -1149,69 +1149,68 @@ async function initDrive(clientId, folderName) {
     }, 400);
   }
 
-  // Step 1: fetch direct subfolder names so we can reconstruct paths.
-  // For ComfyUI-Results/<job_id>/<file> this is one level = ~8 paginated calls.
-  // Run concurrently with the file scan so it doesn't add latency.
-  const folderMap = {}; // parentId → folderName
-  const folderMapReady = (async () => {
+  // Step 1: Haal alle directe subfolders op (nieuwste eerst) en bouw een id→naam map.
+  // ~8 paginated calls voor 7900 mappen.
+  const folderMap = {}; // folderId → name
+  const allSubfolders = []; // [{id, name}], gesorteerd nieuwste eerst
+  let sfPt = null;
+  do {
+    const r = await gapi.client.drive.files.list({
+      q: `'${folderId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`,
+      fields: 'nextPageToken,files(id,name)',
+      pageSize: 1000, pageToken: sfPt, orderBy: 'modifiedTime desc',
+    });
+    for (const f of r.result.files) {
+      if (/^tmp$/i.test(f.name)) continue;
+      folderMap[f.id] = f.name;
+      allSubfolders.push(f);
+    }
+    sfPt = r.result.nextPageToken;
+  } while (sfPt);
+
+  // Step 2: Bundel meerdere parent-IDs in één query zodat we 7900 calls → ~160 calls maken.
+  // Drive API ondersteunt: ('id1' in parents or 'id2' in parents or ...) and trashed=false
+  // Met 50 IDs per query: 7900/50 = 158 queries, 3 tegelijk → ~53 rondes × ~700ms ≈ 37 sec.
+  const CHUNK = 50;   // subfolder-IDs per query
+  const PAR   = 3;    // gelijktijdige queries
+
+  async function scanChunk(folders) {
+    const parentQ = folders.map(sf => `'${sf.id}' in parents`).join(' or ');
     let pt = null;
     do {
       const r = await gapi.client.drive.files.list({
-        q: `'${folderId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`,
-        fields: 'nextPageToken,files(id,name)',
+        q: `(${parentQ}) and mimeType != 'application/vnd.google-apps.folder' and trashed=false`,
+        fields: 'nextPageToken,files(id,name,mimeType,modifiedTime,thumbnailLink,parents)',
         pageSize: 1000, pageToken: pt,
       });
-      for (const f of r.result.files) folderMap[f.id] = f.name;
+      for (const f of r.result.files) {
+        if (!isMedia(f.name)) continue;
+        const sfName = folderMap[f.parents?.[0]] ?? '';
+        const name = sfName ? sfName + '/' + f.name : f.name;
+        if (isExcluded(name)) continue;
+        const v = f.mimeType?.startsWith('video/') ?? false;
+        const baseThumb = f.thumbnailLink ? f.thumbnailLink.replace(/=s\d+(-c)?$/, '') : null;
+        const thumbUrl = baseThumb ? baseThumb + '=s200' : `https://drive.google.com/thumbnail?id=${f.id}&sz=w200`;
+        const fullUrl  = v ? null : (baseThumb ? baseThumb + '=s2048' : `https://drive.google.com/thumbnail?id=${f.id}&sz=w2048`);
+        media.push({ name, driveId: f.id, video: v, url: fullUrl, fullUrl, thumbUrl, thumbBase: baseThumb, date: new Date(f.modifiedTime || 0).getTime(), kind: 'drive' });
+      }
       pt = r.result.nextPageToken;
     } while (pt);
-  })();
-
-  // Step 2: 'in ancestors' fetches ALL files recursively in one paginated search.
-  // For 41k files this is ~42 calls instead of 7900 per-folder calls → 30-60x faster.
-  let filePt = null;
-  do {
-    const r = await gapi.client.drive.files.list({
-      q: `'${folderId}' in ancestors and mimeType != 'application/vnd.google-apps.folder' and trashed=false`,
-      fields: 'nextPageToken,files(id,name,mimeType,modifiedTime,thumbnailLink,parents)',
-      pageSize: 1000, pageToken: filePt,
-    });
-    for (const f of r.result.files) {
-      if (!isMedia(f.name) || isExcluded(f.name)) continue;
-      const v = f.mimeType.startsWith('video/');
-      const parentId = f.parents?.[0] ?? '';
-      const parentName = folderMap[parentId] ?? ''; // may be '' if folderMap not done yet
-      const prefix = parentName ? parentName + '/' : '';
-      const baseThumb = f.thumbnailLink ? f.thumbnailLink.replace(/=s\d+(-c)?$/, '') : null;
-      const thumbUrl = baseThumb ? baseThumb + '=s200' : `https://drive.google.com/thumbnail?id=${f.id}&sz=w200`;
-      const fullUrl  = v ? null : (baseThumb ? baseThumb + '=s2048' : `https://drive.google.com/thumbnail?id=${f.id}&sz=w2048`);
-      media.push({
-        name: prefix + f.name, driveId: f.id, video: v,
-        url: fullUrl, fullUrl, thumbUrl, thumbBase: baseThumb,
-        date: new Date(f.modifiedTime).getTime(),
-        _parentId: parentId, // keep for path fixup below
-        kind: 'drive',
-      });
-    }
-    filePt = r.result.nextPageToken;
     counter.textContent = `${media.length}...`;
     progressiveRender();
-  } while (filePt);
+  }
 
-  // Wait for folder map, then fix any paths that were resolved before map was ready
-  await folderMapReady;
-  let anyFixed = false;
-  for (const m of media) {
-    if (!m.name.includes('/') && m._parentId && folderMap[m._parentId]) {
-      m.name = folderMap[m._parentId] + '/' + m.name;
-      anyFixed = true;
-    }
+  // Verwerk in chunks van CHUNK, PAR tegelijk
+  const chunks = [];
+  for (let i = 0; i < allSubfolders.length; i += CHUNK) chunks.push(allSubfolders.slice(i, i + CHUNK));
+  for (let i = 0; i < chunks.length; i += PAR) {
+    await Promise.all(chunks.slice(i, i + PAR).map(scanChunk));
   }
 
   // Final flush
   if (renderTimer) { clearTimeout(renderTimer); renderTimer = 0; }
   allMedia = media;
   if (!gridShown) showGrid(); else refreshGrid();
-  if (anyFixed) refreshGrid();
   counter.textContent = media.length;
   saveDriveCache(folderName, media);
 }
