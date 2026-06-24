@@ -938,8 +938,9 @@ const DV_CACHE_MAX = 20000; // cap to stay well under 5MB localStorage limit
 
 function saveDriveCache(folderName, items) {
   try {
-    // Store only essential fields; reconstruct URLs from driveId at load time
-    const minimal = items.slice(0, DV_CACHE_MAX).map(m => [m.driveId, m.name, m.date, m.video ? 1 : 0]);
+    // Store driveId, name, date, video, and thumbBase (signed lh3 URL base, valid for days).
+    // thumbBase lets cached items load thumbnails without re-scanning.
+    const minimal = items.slice(0, DV_CACHE_MAX).map(m => [m.driveId, m.name, m.date, m.video ? 1 : 0, m.thumbBase || '']);
     localStorage.setItem(DV_CACHE_KEY, JSON.stringify({ folder: folderName, ts: Date.now(), items: minimal }));
   } catch (e) {}
 }
@@ -952,12 +953,13 @@ function loadDriveCache(folderName) {
     if (folder !== folderName || !minimal?.length) return null;
     return {
       ts,
-      items: minimal.map(([id, name, date, vid]) => ({
-        driveId: id, name, date, video: !!vid, kind: 'drive',
-        thumbUrl: `https://drive.google.com/thumbnail?id=${id}&sz=w200`,
-        fullUrl:  vid ? null : `https://drive.google.com/thumbnail?id=${id}&sz=w2048`,
-        url:      vid ? null : `https://drive.google.com/thumbnail?id=${id}&sz=w2048`,
-      })),
+      items: minimal.map(([id, name, date, vid, base]) => {
+        const thumbUrl = base
+          ? base + '=s200'
+          : `https://drive.google.com/thumbnail?id=${id}&sz=w200`;
+        const fullUrl  = vid ? null : (base ? base + '=s2048' : `https://drive.google.com/thumbnail?id=${id}&sz=w2048`);
+        return { driveId: id, name, date, video: !!vid, kind: 'drive', thumbBase: base || null, thumbUrl, fullUrl, url: fullUrl };
+      }),
     };
   } catch (e) { return null; }
 }
@@ -1180,12 +1182,19 @@ async function initDrive(clientId, folderName) {
           subfolders.push({ id: f.id, prefix: prefix + f.name + '/' });
         } else if ((f.mimeType.startsWith('image/') || f.mimeType.startsWith('video/')) && !isExcluded(prefix + f.name)) {
           const v = f.mimeType.startsWith('video/');
-          // Use cookie-based thumbnail URLs — these never expire (unlike signed thumbnailLink)
-          const thumbUrl = `https://drive.google.com/thumbnail?id=${f.id}&sz=w200`;
-          const fullUrl  = v ? null : `https://drive.google.com/thumbnail?id=${f.id}&sz=w2048`;
+          // thumbnailLink is a signed URL valid for days — strip the size suffix so we
+          // can request any size. Fall back to the cookie-based URL if Drive omits it.
+          const baseThumb = f.thumbnailLink ? f.thumbnailLink.replace(/=s\d+(-c)?$/, '') : null;
+          const thumbUrl = baseThumb
+            ? baseThumb + '=s200'
+            : `https://drive.google.com/thumbnail?id=${f.id}&sz=w200`;
+          const fullUrl = v
+            ? null
+            : (baseThumb ? baseThumb + '=s2048' : `https://drive.google.com/thumbnail?id=${f.id}&sz=w2048`);
           media.push({
             name: prefix + f.name, driveId: f.id, video: v,
             url: fullUrl, fullUrl, thumbUrl,
+            thumbBase: baseThumb, // stored in cache so restored items still have signed URLs
             date: new Date(f.modifiedTime).getTime(),
             kind: 'drive'
           });
