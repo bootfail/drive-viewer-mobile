@@ -1171,12 +1171,12 @@ async function initDrive(clientId, folderName) {
   let filePt = null;
   do {
     const r = await gapi.client.drive.files.list({
-      q: `'${folderId}' in ancestors and (mimeType contains 'image/' or mimeType contains 'video/') and trashed=false`,
+      q: `'${folderId}' in ancestors and mimeType != 'application/vnd.google-apps.folder' and trashed=false`,
       fields: 'nextPageToken,files(id,name,mimeType,modifiedTime,thumbnailLink,parents)',
       pageSize: 1000, pageToken: filePt,
     });
     for (const f of r.result.files) {
-      if (isExcluded(f.name)) continue;
+      if (!isMedia(f.name) || isExcluded(f.name)) continue;
       const v = f.mimeType.startsWith('video/');
       const parentId = f.parents?.[0] ?? '';
       const parentName = folderMap[parentId] ?? ''; // may be '' if folderMap not done yet
